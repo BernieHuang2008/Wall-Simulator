@@ -61,7 +61,7 @@ class TestManager:
         self.containers['W'] = self.client.containers.create(
             w_config.get('image', 'ubuntu:latest'),
             name=f"{test_name}_W",
-            network_mode='none', 
+            # network_mode='none', 
             cap_add=['NET_ADMIN'],
             command=["tail", "-f", "/dev/null"]
         )
@@ -78,7 +78,7 @@ class TestManager:
             self.containers[role] = self.client.containers.create(
                 cfg.get('image', 'ubuntu:latest'),
                 name=f"{test_name}_{role}",
-                network_mode='none',
+                # network_mode='none',
                 cap_add=['NET_ADMIN'], 
                 command=["tail", "-f", "/dev/null"]
             )

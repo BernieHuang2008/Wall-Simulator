@@ -1,21 +1,292 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Wall Simulator Launcher</title>
     <style>
-        body { font-family: sans-serif; }
-        .container-box { border: 1px solid #ccc; padding: 10px; margin: 10px; width: 30%; display: inline-block; vertical-align: top; }
-        .status-running { color: green; font-weight: bold; }
-        .status-stopped { color: red; font-weight: bold; }
-        #console-output { background: #000; color: #0f0; padding: 10px; height: 300px; overflow-y: scroll; font-family: monospace; white-space: pre-wrap; }
+        :root {
+            --color-A: #3498db;
+            --color-B: #2ecc71;
+            --color-W: #e74c3c;
+
+            /* Lighter backgrounds for terminals (very dark tint) */
+            --bg-A: #0c1a24;
+            --bg-B: #0c2415;
+            --bg-W: #240c0c;
+
+            /* Text colors matching the theme */
+            --text-A: #85c1e9;
+            --text-B: #82e0aa;
+            --text-W: #f1948a;
+
+            --bg-dark: #1e1e1e;
+            --text-light: #ecf0f1;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f4f4f9;
+            margin: 0;
+            padding: 20px;
+        }
+
+        /* Layout & Visualization */
+        .topology-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 40px 0;
+            perspective: 800px;
+        }
+
+        .node {
+            width: 120px;
+            height: 120px;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+            z-index: 2;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        .node:hover {
+            transform: scale(1.05);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .node.active {
+            border: 4px solid #fff;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+        }
+
+        .node-A {
+            background: var(--color-A);
+            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.4);
+        }
+
+        .node-B {
+            background: var(--color-B);
+            box-shadow: 0 5px 15px rgba(46, 204, 113, 0.4);
+        }
+
+        /* 3D Wall W */
+        .node-W {
+            width: 60px;
+            height: 160px;
+            background: #7f8c8d;
+            /* Base color if 3d fails */
+            transform-style: preserve-3d;
+            transform: rotateY(-30deg);
+            border-radius: 2px;
+            background: linear-gradient(45deg, #636e72 25%, transparent 25%, transparent 75%, #636e72 75%, #636e72),
+                linear-gradient(45deg, #636e72 25%, transparent 25%, transparent 75%, #636e72 75%, #636e72);
+            background-color: var(--color-W);
+            background-size: 20px 20px;
+            background-position: 0 0, 10px 10px;
+            box-shadow: 10px 10px 30px rgba(0, 0, 0, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .node-W::before {
+            content: '';
+            position: absolute;
+            left: -10px;
+            top: 0;
+            width: 10px;
+            height: 100%;
+            background: #c0392b;
+            transform-origin: right;
+            transform: rotateY(-90deg);
+        }
+
+        /* Arrows */
+        .connection {
+            flex-grow: 1;
+            max-width: 150px;
+            height: 4px;
+            background: #bdc3c7;
+            position: relative;
+            margin: 0 10px;
+            z-index: 1;
+        }
+
+        .connection::after {
+            content: '';
+            position: absolute;
+            right: -10px;
+            top: -8px;
+            border-width: 10px 0 10px 15px;
+            border-style: solid;
+            border-color: transparent transparent transparent #bdc3c7;
+        }
+
+        /* Traffic Simulation */
+        @keyframes flow {
+            0% {
+                left: 0;
+                opacity: 1;
+            }
+
+            45% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0;
+            }
+
+            /* Disappear at wall */
+            55% {
+                opacity: 0;
+            }
+
+            60% {
+                left: 100%;
+                opacity: 1;
+            }
+
+            /* Reappear after wall */
+            100% {
+                left: 100%;
+                opacity: 0;
+            }
+        }
+
+        .packet {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background: #f1c40f;
+            border-radius: 50%;
+            top: -3px;
+            animation: flow 2s infinite linear;
+        }
+
+        /* Status Badge */
+        .status-badge {
+            margin-top: 5px;
+            font-size: 0.8em;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        /* Terminal Section */
+        .terminal-container {
+            background: var(--bg-dark);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            display: none;
+            /* Hidden by default */
+        }
+
+        .terminal-container.active {
+            display: block;
+        }
+
+        .terminal-header {
+            padding: 10px 15px;
+            color: white;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-A {
+            background: var(--color-A);
+        }
+
+        .header-B {
+            background: var(--color-B);
+        }
+
+        .header-W {
+            background: var(--color-W);
+        }
+
+        .console-output {
+            padding: 15px;
+            height: 400px;
+            overflow-y: scroll;
+            font-family: 'Consolas', 'Monaco', monospace;
+            white-space: pre-wrap;
+            border-top: 1px solid #333;
+            font-size: 14px;
+        }
+
+        #out-A {
+            background: var(--bg-A);
+            color: var(--text-A);
+        }
+
+        #out-B {
+            background: var(--bg-B);
+            color: var(--text-B);
+        }
+
+        #out-W {
+            background: var(--bg-W);
+            color: var(--text-W);
+        }
+
+        .input-area {
+            display: flex;
+            padding: 10px;
+            background: #2d2d2d;
+        }
+
+        .input-area input {
+            flex-grow: 1;
+            background: #3d3d3d;
+            border: none;
+            color: white;
+            padding: 10px;
+            font-family: monospace;
+            border-radius: 4px;
+        }
+
+        .input-area button {
+            margin-left: 10px;
+            padding: 10px 20px;
+            background: #555;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .input-area button:hover {
+            background: #666;
+        }
+
+        /* Controls */
+        .controls {
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        }
     </style>
 </head>
+
 <body>
-    <h1>Launcher Control Panel</h1>
-    
-    <div>
+    <div class="controls">
+        <h1>Wall Simulator Launcher</h1>
         <label for="test-select">Select Test:</label>
         <select id="test-select">
             {% for test in tests %}
@@ -26,74 +297,179 @@
         <button onclick="stopTest()">Stop Test</button>
     </div>
 
-    <div id="containers-status">
-        <!-- Status will be populated here -->
+    <div class="topology-container">
+        <!-- Node A -->
+        <div class="node node-A" onclick="switchTab('A')" id="node-A">
+            <span>Container A</span>
+            <span class="status-badge" id="status-A">Unknown</span>
+        </div>
+
+        <!-- Path A -> W -->
+        <div class="connection">
+            <div class="packet"></div>
+        </div>
+
+        <!-- Node W (The Wall) -->
+        <div class="node node-W" onclick="switchTab('W')" id="node-W">
+            <span style="transform: rotate(90deg); white-space: nowrap;">Wall (W)</span>
+            <span class="status-badge" id="status-W" style="margin-top: 50px;">Unknown</span>
+        </div>
+
+        <!-- Path W -> B -->
+        <div class="connection">
+            <div class="packet" style="animation-delay: 1s;"></div>
+        </div>
+
+        <!-- Node B -->
+        <div class="node node-B" onclick="switchTab('B')" id="node-B">
+            <span>Container B</span>
+            <span class="status-badge" id="status-B">Unknown</span>
+        </div>
     </div>
 
-    <h2>Console</h2>
-    <div>
-        <select id="target-container">
-            <option value="A">Container A</option>
-            <option value="B">Container B</option>
-            <option value="W">Container W</option>
-        </select>
-        <input type="text" id="cmd-input" placeholder="Enter command (e.g., ls -la /)">
-        <button onclick="sendCommand()">Send</button>
+    <!-- Terminal A -->
+    <div id="term-A" class="terminal-container active">
+        <div class="terminal-header header-A">
+            <span>Terminal - Container A</span>
+            <button onclick="clearConsole('A')"
+                style="background:transparent;border:1px solid white;color:white;cursor:pointer;">Clear</button>
+        </div>
+        <div class="console-output" id="out-A"></div>
+        <div class="input-area">
+            <span
+                style="color: var(--color-A); font-weight: bold; margin-right: 10px; align-self: center;">root@A#</span>
+            <input type="text" id="cmd-A" placeholder="Enter command..." onkeypress="handleEnter(event, 'A')">
+            <button onclick="sendCommand('A')">Send</button>
+        </div>
     </div>
-    <div id="console-output"></div>
+
+    <!-- Terminal B -->
+    <div id="term-B" class="terminal-container">
+        <div class="terminal-header header-B">
+            <span>Terminal - Container B</span>
+            <button onclick="clearConsole('B')"
+                style="background:transparent;border:1px solid white;color:white;cursor:pointer;">Clear</button>
+        </div>
+        <div class="console-output" id="out-B"></div>
+        <div class="input-area">
+            <span
+                style="color: var(--color-B); font-weight: bold; margin-right: 10px; align-self: center;">root@B#</span>
+            <input type="text" id="cmd-B" placeholder="Enter command..." onkeypress="handleEnter(event, 'B')">
+            <button onclick="sendCommand('B')">Send</button>
+        </div>
+    </div>
+
+    <!-- Terminal W -->
+    <div id="term-W" class="terminal-container">
+        <div class="terminal-header header-W">
+            <span>Terminal - Container W</span>
+            <button onclick="clearConsole('W')"
+                style="background:transparent;border:1px solid white;color:white;cursor:pointer;">Clear</button>
+        </div>
+        <div class="console-output" id="out-W"></div>
+        <div class="input-area">
+            <span
+                style="color: var(--color-W); font-weight: bold; margin-right: 10px; align-self: center;">root@W#</span>
+            <input type="text" id="cmd-W" placeholder="Enter command..." onkeypress="handleEnter(event, 'W')">
+            <button onclick="sendCommand('W')">Send</button>
+        </div>
+    </div>
 
     <script>
+        function switchTab(role) {
+            // Hide all terminals
+            document.querySelectorAll('.terminal-container').forEach(el => el.classList.remove('active'));
+            // Remove active class from nodes
+            document.querySelectorAll('.node').forEach(el => el.classList.remove('active'));
+
+            // Show selected
+            document.getElementById('term-' + role).classList.add('active');
+            document.getElementById('node-' + role).classList.add('active');
+        }
+
         function updateStatus() {
             fetch('/status')
                 .then(r => r.json())
                 .then(data => {
-                    const div = document.getElementById('containers-status');
-                    div.innerHTML = '';
                     for (const [role, status] of Object.entries(data)) {
-                        const box = document.createElement('div');
-                        box.className = 'container-box';
-                        box.innerHTML = `<h3>${role}</h3><p class="${status === 'running' ? 'status-running' : 'status-stopped'}">${status}</p>`;
-                        div.appendChild(box);
+                        const badger = document.getElementById('status-' + role);
+                        if (badger) {
+                            badger.innerText = status;
+                            badger.style.color = (status === 'running') ? '#2ecc71' : '#e74c3c';
+                        }
                     }
                 });
         }
 
         // Poll status every 2 seconds
         setInterval(updateStatus, 2000);
+        updateStatus(); // Initial call
 
         function startTest() {
             const testName = document.getElementById('test-select').value;
             fetch('/start', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: `test_name=${testName}`
             })
-            .then(r => r.json())
-            .then(data => alert('Started: ' + JSON.stringify(data)));
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) alert('Error: ' + JSON.stringify(data));
+                    else {
+                        console.log('Started', data);
+                        updateStatus();
+                    }
+                });
         }
 
         function stopTest() {
-            fetch('/stop', {method: 'POST'})
-            .then(r => r.json())
-            .then(data => alert('Stopped'));
+            fetch('/stop', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    console.log('Stopped');
+                    updateStatus();
+                });
         }
 
-        function sendCommand() {
-            const role = document.getElementById('target-container').value;
-            const cmd = document.getElementById('cmd-input').value;
-            
+        function handleEnter(e, role) {
+            if (e.key === 'Enter') sendCommand(role);
+        }
+
+        function sendCommand(role) {
+            const cmdInput = document.getElementById('cmd-' + role);
+            const cmd = cmdInput.value;
+            if (!cmd) return;
+
+            const out = document.getElementById('out-' + role);
+            out.innerText += `\n[root@${role}]# ${cmd}\n`;
+            cmdInput.value = ''; // Clear input
+
             fetch('/exec', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({role: role, cmd: cmd})
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: role, cmd: cmd })
             })
-            .then(r => r.json())
-            .then(data => {
-                const out = document.getElementById('console-output');
-                out.innerText += `\n[${role}] $ ${cmd}\n${data.output}`;
-                out.scrollTop = out.scrollHeight;
-            });
+                .then(r => r.json())
+                .then(data => {
+                    if (data.exit_code === 0) {
+                        out.innerText += data.output;
+                    } else {
+                        out.innerText += `Error (Exit ${data.exit_code}):\n${data.output}`;
+                    }
+                    out.scrollTop = out.scrollHeight;
+                })
+                .catch(err => {
+                    out.innerText += `\nError sending command: ${err}`;
+                });
         }
+
+        function clearConsole(role) {
+            document.getElementById('out-' + role).innerText = '';
+        }
+
+        // Initial tab set
+        switchTab('A');
     </script>
 </body>
+
 </html>
