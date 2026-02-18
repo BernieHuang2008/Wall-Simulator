@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wall Simulator Launcher</title>
+    <style>
+        body { font-family: sans-serif; }
+        .container-box { border: 1px solid #ccc; padding: 10px; margin: 10px; width: 30%; display: inline-block; vertical-align: top; }
+        .status-running { color: green; font-weight: bold; }
+        .status-stopped { color: red; font-weight: bold; }
+        #console-output { background: #000; color: #0f0; padding: 10px; height: 300px; overflow-y: scroll; font-family: monospace; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h1>Launcher Control Panel</h1>
+    
+    <div>
+        <label for="test-select">Select Test:</label>
+        <select id="test-select">
+            {% for test in tests %}
+            <option value="{{ test }}">{{ test }}</option>
+            {% endfor %}
+        </select>
+        <button onclick="startTest()">Start Test</button>
+        <button onclick="stopTest()">Stop Test</button>
+    </div>
+
+    <div id="containers-status">
+        <!-- Status will be populated here -->
+    </div>
+
+    <h2>Console</h2>
+    <div>
+        <select id="target-container">
+            <option value="A">Container A</option>
+            <option value="B">Container B</option>
+            <option value="W">Container W</option>
+        </select>
+        <input type="text" id="cmd-input" placeholder="Enter command (e.g., ls -la /)">
+        <button onclick="sendCommand()">Send</button>
+    </div>
+    <div id="console-output"></div>
+
+    <script>
+        function updateStatus() {
+            fetch('/status')
+                .then(r => r.json())
+                .then(data => {
+                    const div = document.getElementById('containers-status');
+                    div.innerHTML = '';
+                    for (const [role, status] of Object.entries(data)) {
+                        const box = document.createElement('div');
+                        box.className = 'container-box';
+                        box.innerHTML = `<h3>${role}</h3><p class="${status === 'running' ? 'status-running' : 'status-stopped'}">${status}</p>`;
+                        div.appendChild(box);
+                    }
+                });
+        }
+
+        // Poll status every 2 seconds
+        setInterval(updateStatus, 2000);
+
+        function startTest() {
+            const testName = document.getElementById('test-select').value;
+            fetch('/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: `test_name=${testName}`
+            })
+            .then(r => r.json())
+            .then(data => alert('Started: ' + JSON.stringify(data)));
+        }
+
+        function stopTest() {
+            fetch('/stop', {method: 'POST'})
+            .then(r => r.json())
+            .then(data => alert('Stopped'));
+        }
+
+        function sendCommand() {
+            const role = document.getElementById('target-container').value;
+            const cmd = document.getElementById('cmd-input').value;
+            
+            fetch('/exec', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({role: role, cmd: cmd})
+            })
+            .then(r => r.json())
+            .then(data => {
+                const out = document.getElementById('console-output');
+                out.innerText += `\n[${role}] $ ${cmd}\n${data.output}`;
+                out.scrollTop = out.scrollHeight;
+            });
+        }
+    </script>
+</body>
+</html>

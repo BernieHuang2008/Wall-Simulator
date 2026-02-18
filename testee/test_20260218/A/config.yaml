@@ -1,0 +1,3 @@
+image: alpine:latest
+network:
+  ip: 172.20.0.10

@@ -1,0 +1,4 @@
+image: alpine:latest
+# or wireshark/tshark, or custom image with routing capabilities
+network:
+  ip: 172.20.0.12
