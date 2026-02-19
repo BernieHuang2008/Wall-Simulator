@@ -5,24 +5,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Wall Simulator Launcher</title>
+    <!-- Xterm.js CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    <!-- Xterm.js Library -->
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+
     <style>
+        /* Base styles */
         :root {
             --color-A: #3498db;
             --color-B: #2ecc71;
             --color-W: #e74c3c;
-
             /* Lighter backgrounds for terminals (very dark tint) */
             --bg-A: #0c1a24;
             --bg-B: #0c2415;
             --bg-W: #240c0c;
-
-            /* Text colors matching the theme */
-            --text-A: #85c1e9;
-            --text-B: #82e0aa;
-            --text-W: #f1948a;
-
             --bg-dark: #1e1e1e;
-            --text-light: #ecf0f1;
         }
 
         body {
@@ -190,7 +191,6 @@
             overflow: hidden;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
             display: none;
-            /* Hidden by default */
         }
 
         .terminal-container.active {
@@ -218,59 +218,23 @@
             background: var(--color-W);
         }
 
-        .console-output {
-            padding: 15px;
+        .xterm-container {
             height: 400px;
-            overflow-y: scroll;
-            font-family: 'Consolas', 'Monaco', monospace;
-            white-space: pre-wrap;
+            background: #000;
+            padding: 5px;
             border-top: 1px solid #333;
-            font-size: 14px;
+            position: relative;
         }
 
-        #out-A {
-            background: var(--bg-A);
-            color: var(--text-A);
-        }
-
-        #out-B {
-            background: var(--bg-B);
-            color: var(--text-B);
-        }
-
-        #out-W {
-            background: var(--bg-W);
-            color: var(--text-W);
-        }
-
-        .input-area {
-            display: flex;
-            padding: 10px;
-            background: #2d2d2d;
-        }
-
-        .input-area input {
-            flex-grow: 1;
-            background: #3d3d3d;
-            border: none;
-            color: white;
-            padding: 10px;
-            font-family: monospace;
-            border-radius: 4px;
-        }
-
-        .input-area button {
-            margin-left: 10px;
-            padding: 10px 20px;
-            background: #555;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-
-        .input-area button:hover {
-            background: #666;
+        .xterm-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            opacity: 0.1;
+            z-index: 10;
         }
 
         /* Controls */
@@ -331,15 +295,11 @@
     <div id="term-A" class="terminal-container active">
         <div class="terminal-header header-A">
             <span>Terminal - Container A</span>
-            <button onclick="clearConsole('A')"
-                style="background:transparent;border:1px solid white;color:white;cursor:pointer;">Clear</button>
+            <button onclick="terminals['A'].term.clear()" style="background:transparent;border:1px solid white;color:white;cursor:pointer;">Clear</button>
         </div>
-        <div class="console-output" id="out-A"></div>
-        <div class="input-area">
-            <span
-                style="color: var(--color-A); font-weight: bold; margin-right: 10px; align-self: center;">root@A#</span>
-            <input type="text" id="cmd-A" placeholder="Enter command..." onkeypress="handleEnter(event, 'A')">
-            <button onclick="sendCommand('A')">Send</button>
+        <div class="xterm-container" id="xterm-wrapper-A">
+             <div class="xterm-overlay" style="background-color: var(--color-A);"></div>
+             <div id="xterm-A" style="width:100%;height:100%;"></div>
         </div>
     </div>
 
@@ -347,15 +307,11 @@
     <div id="term-B" class="terminal-container">
         <div class="terminal-header header-B">
             <span>Terminal - Container B</span>
-            <button onclick="clearConsole('B')"
-                style="background:transparent;border:1px solid white;color:white;cursor:pointer;">Clear</button>
+            <button onclick="terminals['B'].term.clear()" style="background:transparent;border:1px solid white;color:white;cursor:pointer;">Clear</button>
         </div>
-        <div class="console-output" id="out-B"></div>
-        <div class="input-area">
-            <span
-                style="color: var(--color-B); font-weight: bold; margin-right: 10px; align-self: center;">root@B#</span>
-            <input type="text" id="cmd-B" placeholder="Enter command..." onkeypress="handleEnter(event, 'B')">
-            <button onclick="sendCommand('B')">Send</button>
+        <div class="xterm-container" id="xterm-wrapper-B">
+             <div class="xterm-overlay" style="background-color: var(--color-B);"></div>
+             <div id="xterm-B" style="width:100%;height:100%;"></div>
         </div>
     </div>
 
@@ -363,15 +319,11 @@
     <div id="term-W" class="terminal-container">
         <div class="terminal-header header-W">
             <span>Terminal - Container W</span>
-            <button onclick="clearConsole('W')"
-                style="background:transparent;border:1px solid white;color:white;cursor:pointer;">Clear</button>
+             <button onclick="terminals['W'].term.clear()" style="background:transparent;border:1px solid white;color:white;cursor:pointer;">Clear</button>
         </div>
-        <div class="console-output" id="out-W"></div>
-        <div class="input-area">
-            <span
-                style="color: var(--color-W); font-weight: bold; margin-right: 10px; align-self: center;">root@W#</span>
-            <input type="text" id="cmd-W" placeholder="Enter command..." onkeypress="handleEnter(event, 'W')">
-            <button onclick="sendCommand('W')">Send</button>
+        <div class="xterm-container" id="xterm-wrapper-W">
+             <div class="xterm-overlay" style="background-color: var(--color-W);"></div>
+             <div id="xterm-W" style="width:100%;height:100%;"></div>
         </div>
     </div>
 
@@ -385,6 +337,24 @@
             // Show selected
             document.getElementById('term-' + role).classList.add('active');
             document.getElementById('node-' + role).classList.add('active');
+
+            // Fit terminal if connected
+            if (terminals[role]) {
+                setTimeout(() => {
+                    try {
+                        terminals[role].fitAddon.fit();
+                        terminals[role].term.focus();
+                        socket.emit('terminal_resize', { 
+                            role: role, 
+                            rows: terminals[role].term.rows, 
+                            cols: terminals[role].term.cols 
+                        });
+                    } catch(e) {}
+                }, 100);
+            } else {
+                // Initialize if not yet created (lazy load)
+                initTerminal(role);
+            }
         }
 
         function updateStatus() {
@@ -431,45 +401,87 @@
                 });
         }
 
-        function handleEnter(e, role) {
-            if (e.key === 'Enter') sendCommand(role);
+        // --- Interactive Terminal Logic ---
+        var terminals = {}; // role -> { term, fitAddon }
+        var socket = io();
+
+        socket.on('terminal_output', (data) => {
+             if (terminals[data.role]) {
+                 terminals[data.role].term.write(data.data);
+             }
+        });
+        
+        socket.on('terminal_error', (data) => {
+             if (terminals[data.role]) {
+                 terminals[data.role].term.write('\r\n\x1b[31mjSystem Error: ' + data.message + '\x1b[0m\r\n');
+             }
+        });
+        
+        function initTerminal(role) {
+            const xtermContainer = document.getElementById('xterm-' + role);
+            if (!xtermContainer) return;
+            xtermContainer.innerHTML = ''; // Ensure clean slate
+            
+            const term = new Terminal({
+                cursorBlink: true,
+                theme: {
+                    background: '#00000000', // Transparent background to show overlay color
+                    foreground: '#f0f0f0'
+                },
+                fontSize: 14,
+                fontFamily: 'Consolas, monospace',
+                allowTransparency: true
+            });
+            
+            const fitAddon = new FitAddon.FitAddon();
+            term.loadAddon(fitAddon);
+            
+            term.open(xtermContainer);
+            fitAddon.fit();
+            
+            term.onData(data => {
+                socket.emit('terminal_input', { role: role, data: data });
+            });
+            
+            // Connect to backend
+            socket.emit('connect_terminal', { 
+                role: role, 
+                rows: term.rows, 
+                cols: term.cols 
+            });
+            
+            term.focus();
+            
+            terminals[role] = {
+                term: term,
+                fitAddon: fitAddon
+            };
+            
+            // Resize observer for this specific terminal container
+            const resizeObserver = new ResizeObserver(() => {
+                try {
+                   fitAddon.fit();
+                   socket.emit('terminal_resize', { role: role, rows: term.rows, cols: term.cols });
+                } catch(e) {}
+            });
+            resizeObserver.observe(document.getElementById('xterm-wrapper-' + role));
         }
 
-        function sendCommand(role) {
-            const cmdInput = document.getElementById('cmd-' + role);
-            const cmd = cmdInput.value;
-            if (!cmd) return;
+        // Handle global resize
+        window.addEventListener('resize', () => {
+             Object.keys(terminals).forEach(role => {
+                 const t = terminals[role];
+                 if (t && document.getElementById('term-' + role).classList.contains('active')) {
+                     try {
+                        t.fitAddon.fit();
+                        socket.emit('terminal_resize', { role: role, rows: t.term.rows, cols: t.term.cols });
+                     } catch(e) {} 
+                 }
+             });
+        });
 
-            const out = document.getElementById('out-' + role);
-            out.innerText += `\n[root@${role}]# ${cmd}\n`;
-            cmdInput.value = ''; // Clear input
-
-            fetch('/exec', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ role: role, cmd: cmd })
-            })
-                .then(r => r.json())
-                .then(data => {
-                    if (data.exit_code === 0) {
-                        out.innerText += data.output;
-                    } else {
-                        out.innerText += `Error (Exit ${data.exit_code}):\n${data.output}`;
-                    }
-                    out.scrollTop = out.scrollHeight;
-                })
-                .catch(err => {
-                    out.innerText += `\nError sending command: ${err}`;
-                });
-        }
-
-        function clearConsole(role) {
-            document.getElementById('out-' + role).innerText = '';
-        }
-
-        // Initial tab set
+        // Initialize default tab
         switchTab('A');
     </script>
 </body>
-
 </html>
