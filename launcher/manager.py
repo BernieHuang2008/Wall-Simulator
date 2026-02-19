@@ -2,6 +2,8 @@ import docker
 import os
 import yaml
 import time
+import io
+import tarfile
 
 class TestManager:
     def __init__(self, base_dir):
@@ -9,6 +11,53 @@ class TestManager:
         self.base_dir = base_dir
         self.network_name = "wall_sim_net"
         self.containers = {}
+
+    def _make_tarfile(self, source_dir):
+        stream = io.BytesIO()
+        with tarfile.open(fileobj=stream, mode='w') as tar:
+            tar.add(source_dir, arcname=os.path.basename(source_dir))
+        stream.seek(0)
+        return stream
+
+    def _run_start_script(self, test_name, role):
+        if role not in self.containers:
+            return
+            
+        container = self.containers[role]
+        test_path = os.path.join(self.base_dir, 'testee', test_name)
+        config_path = os.path.join(test_path, role, 'config.yaml')
+        script_dir = os.path.join(test_path, role, 'start_script')
+        
+        # Load config to check for start_script
+        config = self.load_config(test_name).get(role, {})
+        commands = config.get('start_script')
+        
+        if commands and os.path.isdir(script_dir):
+            print(f"[{role}] Deploying start_script from {script_dir}...")
+            # Create tar archive
+            stream = self._make_tarfile(script_dir)
+            # Copy archive to container root (creates /start_script)
+            try:
+                container.put_archive('/', stream)
+            except Exception as e:
+                print(f"[{role}] Failed to copy start_script: {e}")
+                return
+
+            # Run commands
+            for cmd in commands:
+                print(f"[{role}] Executing: {cmd}")
+                try:
+                    exit_code, output = container.exec_run(
+                        cmd, 
+                        workdir='/start_script' 
+                    )
+                    if exit_code != 0:
+                        print(f"[{role}] Command failed ({exit_code}): {output.decode()}")
+                    else:
+                        print(f"[{role}] Output: {output.decode()}")
+                except Exception as e:
+                    print(f"[{role}] Execution error: {e}")
+
 
     def load_config(self, test_name):
         test_path = os.path.join(self.base_dir, 'testee', test_name)
@@ -68,6 +117,9 @@ class TestManager:
         network.connect(self.containers['W'], ipv4_address=w_ip)
         self.containers['W'].start()
         
+        # Run start script for W
+        self._run_start_script(test_name, 'W')
+
         # Enable forwarding on W
         self.containers['W'].exec_run("sysctl -w net.ipv4.ip_forward=1")
 
@@ -84,6 +136,7 @@ class TestManager:
             )
             network.connect(self.containers[role], ipv4_address=ip)
             self.containers[role].start()
+            self._run_start_script(test_name, role)
 
         # Configure Routes
         # A -> B via W

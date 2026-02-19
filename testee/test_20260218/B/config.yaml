@@ -1,3 +1,6 @@
-image: alpine:latest
+image: ubuntu_based_python:latest
+start_script:
+  - python3 python.py
+
 network:
   ip: 172.20.0.11
