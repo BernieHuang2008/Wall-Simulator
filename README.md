@@ -60,5 +60,6 @@ project_root/
 - `W 容器`: 开启了 IP Forwarding (sysctl -w net.ipv4.ip_forward=1)，充当路由器。
 - `A 容器`: 添加了一其路由规则，强制去往 B 的流量经过 W (ip route add <B_IP> via <W_IP>)。
 - `B 容器`: 同理，去往 A 的流量也被强制经过 W。
+- `*Wireshark_Sidecar 容器`: `WS_Sidecar` **完全共享** `W` 容器的网络栈（包括 IP 地址、MAC 地址和网络接口）。它就像是寄生在 W 上的一个进程。
 
 这样，W 作为一个纯粹的“管道监听器”，可以捕获所有经过的 TCP/UDP 流量，且不需要任何密钥或证书，因为它仅在网络层（IP层）转发包。

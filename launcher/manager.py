@@ -90,6 +90,55 @@ class TestManager:
             ipam=ipam_config,
             options={"com.docker.network.bridge.enable_icc": "true"} # Allow inter-container communication
         )
+    
+    def create_container(self, name, config):
+        image = config.get('image', 'ubuntu:latest')
+        ports_map = {}
+        
+        # Service ports
+        service_ports = config.get('network', {}).get('forward_ports', []) or []
+        for p in service_ports:
+            ports_map[f"{p}/tcp"] = p
+            
+        # Wireshark port mapping
+        wireshark_config = config.get('wireshark', {})
+        if wireshark_config.get('enabled', False):
+            ws_port = wireshark_config.get('port', 3000)
+            # Wireshark internal port is 3000
+            ports_map["3000/tcp"] = ws_port
+
+        return self.client.containers.create(
+            image,
+            name=name,
+            # network_mode='none', 
+            cap_add=['NET_ADMIN'],
+            command=["tail", "-f", "/dev/null"],
+            ports=ports_map
+        )
+
+    def _start_wireshark_sidecar(self, role, parent_container, config):
+        wireshark_config = config.get('wireshark', {})
+        if not wireshark_config.get('enabled', False):
+            return
+
+        print(f"[{role}] Starting Wireshark sidecar...")
+        try:
+            self.client.containers.run(
+                "linuxserver/wireshark:latest",
+                name=f"{parent_container.name}_wireshark",
+                network_mode=f"container:{parent_container.id}",
+                environment={
+                    "PUID": "1000",
+                    "PGID": "1000",
+                    "TZ": "Etc/UTC"
+                },
+                cap_add=['NET_ADMIN'],
+                detach=True
+            )
+            # Track it for cleanup
+            self.containers[f"{role}_wireshark"] = self.client.containers.get(f"{parent_container.name}_wireshark")
+        except Exception as e:
+            print(f"[{role}] Failed to start Wireshark sidecar: {e}")
 
     def start_test(self, test_name):
         configs = self.load_config(test_name)
@@ -105,50 +154,87 @@ class TestManager:
 
         # Start W first as it might be the gateway
         w_config = configs['W']
-        # Create without network first to avoid default bridge attachment
-        # network_mode='none' ensures no default network
-        self.containers['W'] = self.client.containers.create(
-            w_config.get('image', 'ubuntu:latest'),
-            name=f"{test_name}_W",
-            # network_mode='none', 
-            cap_add=['NET_ADMIN'],
-            command=["tail", "-f", "/dev/null"]
-        )
+        self.containers['W'] = self.create_container(f"{test_name}_W", w_config)
         network.connect(self.containers['W'], ipv4_address=w_ip)
         self.containers['W'].start()
+        
+        # Start Wireshark Sidecar for W if configured
+        self._start_wireshark_sidecar('W', self.containers['W'], w_config)
         
         # Run start script for W
         self._run_start_script(test_name, 'W')
 
-        # Enable forwarding on W
+        # Enable forwarding on W and disable ICMP redirects
+        # Disabling redirects is CRITICAL: 
+        # Since A and B are on the same subnet, W would normally send an ICMP Redirect 
+        # telling A to contact B directly. We want to force traffic through W.
         self.containers['W'].exec_run("sysctl -w net.ipv4.ip_forward=1")
+        self.containers['W'].exec_run("sysctl -w net.ipv4.conf.all.send_redirects=0")
+        self.containers['W'].exec_run("sysctl -w net.ipv4.conf.default.send_redirects=0")
+        self.containers['W'].exec_run("sysctl -w net.ipv4.conf.eth0.send_redirects=0")
 
         # Start A and B
         for role in ['A', 'B']:
             cfg = configs[role]
+            self.containers[role] = self.create_container(f"{test_name}_{role}", cfg)
+            
             ip = cfg.get('network', {}).get('ip') # Fixed to use local var 'ip' correctly
-            self.containers[role] = self.client.containers.create(
-                cfg.get('image', 'ubuntu:latest'),
-                name=f"{test_name}_{role}",
-                # network_mode='none',
-                cap_add=['NET_ADMIN'], 
-                command=["tail", "-f", "/dev/null"]
-            )
             network.connect(self.containers[role], ipv4_address=ip)
             self.containers[role].start()
+            
             self._run_start_script(test_name, role)
 
         # Configure Routes
         # A -> B via W
-        # Since we use network_mode='none' then connect to custom network, 
-        # the interface inside is likely 'eth0' or 'eth1'. 
-        # Usually checking output of 'ip addr' is safer, but assuming eth0 for single network.
-        # We need to delete default route (if any, usually none with custom IPAM?) or add specific route.
-        # Custom network usually adds a default route to the gateway (172.20.0.1).
-        # We want traffic to B (172.20.0.11) to go via W (172.20.0.12).
-        # Since they are on the SAME SUBNET (172.20.0.0/16), we must force it.
-        self.containers['A'].exec_run(f"ip route add {b_ip} via {w_ip}")
-        self.containers['B'].exec_run(f"ip route add {a_ip} via {w_ip}")
+        # Critical: A and B are on the same subnet. Linux kernel will prefer the direct link connection
+        # over the gateway unless we are very specific or delete the link route (which breaks gateway comms).
+        # We generally add a specific host route (/32) which has higher priority than the subnet route (/16).
+        # We assume the containers have 'ip' command available (iproute2 package).
+        # If the direct route still takes precedence, we might need to delete the ARP entry or use policy routing,
+        # but usually a specific route 'via' gateway works if valid.
+        
+        print("Configuring static routes and suppressing ARP...")
+        
+        try:
+            # 1. Get Host MACs
+            # We need to manually populate the ARP table so A knows W's MAC, and W knows B's MAC.
+            # This prevents A from broadcasting "Who has B?" or "Who has W?"
+            
+            def get_mac(role):
+                exit_code, output = self.containers[role].exec_run("cat /sys/class/net/eth0/address")
+                return output.decode().strip() if exit_code == 0 else None
+
+            w_mac = get_mac('W')
+            a_mac = get_mac('A')
+            b_mac = get_mac('B')
+
+            if w_mac and a_mac and b_mac:
+                print(f"[Info] MACs - W:{w_mac}, A:{a_mac}, B:{b_mac}")
+
+                # 2. Configure A: Route to B via W
+                # To prevent ARP for W (the gateway), we add a static ARP entry for W on A.
+                self.containers['A'].exec_run(f"ip neigh add {w_ip} lladdr {w_mac} dev eth0")
+                self.containers['A'].exec_run(f"ip route add {b_ip}/32 via {w_ip}")
+
+                # 3. Configure B: Route to A via W
+                self.containers['B'].exec_run(f"ip neigh add {w_ip} lladdr {w_mac} dev eth0")
+                self.containers['B'].exec_run(f"ip route add {a_ip}/32 via {w_ip}")
+
+                # 4. Configure W (The Router)
+                # W needs to know how to reach A and B without ARP
+                self.containers['W'].exec_run(f"ip neigh add {a_ip} lladdr {a_mac} dev eth0")
+                self.containers['W'].exec_run(f"ip neigh add {b_ip} lladdr {b_mac} dev eth0")
+                
+                # Turn off ARP entirely on interfaces? No, that breaks other things.
+                # Just populating the table prevents the requests.
+            else:
+                print("[Error] Could not retrieve all MAC addresses.")
+                # Fallback to just routes
+                self.containers['A'].exec_run(f"ip route add {b_ip}/32 via {w_ip}")
+                self.containers['B'].exec_run(f"ip route add {a_ip}/32 via {w_ip}")
+
+        except Exception as e:
+            print(f"Error configuring static ARP: {e}")
 
         return str({k: v.status for k,v in self.containers.items()})
 

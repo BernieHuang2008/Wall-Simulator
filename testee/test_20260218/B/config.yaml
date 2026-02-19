@@ -1,6 +1,8 @@
 image: ubuntu_based_python:latest
 start_script:
-  - python3 python.py
+  - "chmod +x ./simple_http_server.sh"
+  - ./simple_http_server.sh
 
 network:
   ip: 172.20.0.11
+  

@@ -2,3 +2,10 @@ image: ubuntu_based_python:latest
 # or wireshark/tshark, or custom image with routing capabilities
 network:
   ip: 172.20.0.12
+start_script:
+  - "chmod +x ./wall_main/start.sh"
+  - ./wall_main/start.sh
+
+wireshark:
+  enabled: true
+  port: 3000

@@ -7,6 +7,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Update the package list and install Python and pip
 RUN apt-get update && \
     apt-get install -y python3 python3-pip python3-venv && \
+    apt-get install -y curl openssh-client net-tools iproute2 iputils-ping iptables && \
+    apt-get install -y tcpdump libpcap-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Set python3 as the default python
