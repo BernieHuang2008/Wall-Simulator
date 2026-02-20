@@ -196,47 +196,77 @@ class TestManager:
         print("Configuring static routes and suppressing ARP...")
         
         try:
-            # 1. Get Host MACs
-            # We need to manually populate the ARP table so A knows W's MAC, and W knows B's MAC.
-            # This prevents A from broadcasting "Who has B?" or "Who has W?"
-            
-            def get_mac(role):
-                exit_code, output = self.containers[role].exec_run("cat /sys/class/net/eth0/address")
-                return output.decode().strip() if exit_code == 0 else None
+            # Helper to rename interface and update internal state
+            def configure_interface(role, ip_addr):
+                # 1. Start by finding the interface for `ip_addr`
+                # Fix: removed extra backslash used for escaping $ in awk. 
+                # docker exec argument parsing can be tricky. We try to be as clean as possible.
+                # We want the shell to execute: ip -o addr show | grep 'inet <ip>' | awk '{print $2}'
+                cmd_find = f"ip -o addr show | grep 'inet {ip_addr}' | awk '{{print $2}}'"
+                
+                # Wrapping in sh -c to ensure pipe handling
+                cmd_full = ["/bin/sh", "-c", cmd_find]
+                
+                exit_code, output = self.containers[role].exec_run(cmd_full)
+                old_iface = output.decode().strip()
+                
+                if not old_iface:
+                    print(f"[{role}] Warning: Could not find interface for {ip_addr}")
+                    return "eth0", None 
 
-            w_mac = get_mac('W')
-            a_mac = get_mac('A')
-            b_mac = get_mac('B')
+                # 2. Rename it to 'eth_wallsim'
+                # Note: 'ip link set name' requires the interface to be DOWN first.
+                rename_cmds = (
+                    f"ip link set dev {old_iface} down && "
+                    f"ip link set dev {old_iface} name eth_wallsim && "
+                    f"ip link set dev eth_wallsim up"
+                )
+                
+                # We attempt rename. If it fails, we fall back to old name.
+                exit_code, output = self.containers[role].exec_run(["/bin/sh", "-c", rename_cmds])
+                
+                final_iface = "eth_wallsim"
+                if exit_code != 0:
+                    print(f"[{role}] Failed to rename interface from {old_iface}: {output.decode()}")
+                    final_iface = old_iface
+
+                # 3. Get the MAC address
+                cmd = f"cat /sys/class/net/{final_iface}/address"
+                exit_code, output = self.containers[role].exec_run(cmd)
+                mac = output.decode().strip() if exit_code == 0 else None
+                return final_iface, mac
+
+            w_iface, w_mac = configure_interface('W', w_ip)
+            a_iface, a_mac = configure_interface('A', a_ip)
+            b_iface, b_mac = configure_interface('B', b_ip)
 
             if w_mac and a_mac and b_mac:
-                print(f"[Info] MACs - W:{w_mac}, A:{a_mac}, B:{b_mac}")
+                print(f"[Info] Interfaces renamed to eth_wallsim. MACs - W:{w_mac}, A:{a_mac}, B:{b_mac}")
 
                 # 2. Configure A: Route to B via W
-                # To prevent ARP for W (the gateway), we add a static ARP entry for W on A.
-                self.containers['A'].exec_run(f"ip neigh add {w_ip} lladdr {w_mac} dev eth0")
-                self.containers['A'].exec_run(f"ip route add {b_ip}/32 via {w_ip}")
+                self.containers['A'].exec_run(f"ip neigh add {w_ip} lladdr {w_mac} dev {a_iface}")
+                self.containers['A'].exec_run(f"ip route add {b_ip}/32 via {w_ip} dev {a_iface}")
 
                 # 3. Configure B: Route to A via W
-                self.containers['B'].exec_run(f"ip neigh add {w_ip} lladdr {w_mac} dev eth0")
-                self.containers['B'].exec_run(f"ip route add {a_ip}/32 via {w_ip}")
+                self.containers['B'].exec_run(f"ip neigh add {w_ip} lladdr {w_mac} dev {b_iface}")
+                self.containers['B'].exec_run(f"ip route add {a_ip}/32 via {w_ip} dev {b_iface}")
 
                 # 4. Configure W (The Router)
-                # W needs to know how to reach A and B without ARP
-                self.containers['W'].exec_run(f"ip neigh add {a_ip} lladdr {a_mac} dev eth0")
-                self.containers['W'].exec_run(f"ip neigh add {b_ip} lladdr {b_mac} dev eth0")
+                self.containers['W'].exec_run(f"ip neigh add {a_ip} lladdr {a_mac} dev {w_iface}")
+                self.containers['W'].exec_run(f"ip neigh add {b_ip} lladdr {b_mac} dev {w_iface}")
                 
-                # Turn off ARP entirely on interfaces? No, that breaks other things.
-                # Just populating the table prevents the requests.
             else:
                 print("[Error] Could not retrieve all MAC addresses.")
-                # Fallback to just routes
-                self.containers['A'].exec_run(f"ip route add {b_ip}/32 via {w_ip}")
-                self.containers['B'].exec_run(f"ip route add {a_ip}/32 via {w_ip}")
 
         except Exception as e:
             print(f"Error configuring static ARP: {e}")
 
         return str({k: v.status for k,v in self.containers.items()})
+
+    def _get_mac_for_config(self, role, iface_name):
+        cmd = f"cat /sys/class/net/{iface_name}/address"
+        exit_code, output = self.containers[role].exec_run(cmd)
+        return output.decode().strip() if exit_code == 0 else None
 
     def stop_test(self):
         for role, container in self.containers.items():
