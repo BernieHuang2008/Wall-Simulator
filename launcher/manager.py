@@ -36,9 +36,9 @@ class TestManager:
             print(f"[{role}] Deploying start_script from {script_dir}...")
             # Create tar archive
             stream = self._make_tarfile(script_dir)
-            # Copy archive to container root (creates /start_script)
+            # Copy archive to container /app dir (creates /app/start_script)
             try:
-                container.put_archive('/', stream)
+                container.put_archive('/app/', stream)
             except Exception as e:
                 print(f"[{role}] Failed to copy start_script: {e}")
                 return
@@ -49,7 +49,7 @@ class TestManager:
                 try:
                     exit_code, output = container.exec_run(
                         cmd, 
-                        workdir='/start_script' 
+                        workdir='/app/start_script' 
                     )
                     if exit_code != 0:
                         print(f"[{role}] Command failed ({exit_code}): {output.decode()}")

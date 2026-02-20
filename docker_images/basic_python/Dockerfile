@@ -14,6 +14,8 @@ RUN apt-get update && \
 # Set python3 as the default python
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
+RUN python3 -m venv /app/venv
+
 # Set the working directory in the container
 WORKDIR /app
 

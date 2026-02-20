@@ -7,4 +7,4 @@ source /app/venv/bin/activate
 /app/venv/bin/pip3 install scapy netifaces
 
 # Run main script using venv python
-nohup /app/venv/bin/python3 wall_main/main.py > wall_main/wall_main.log 2>&1 &
+nohup /app/venv/bin/python3 proxy/proxy_server.py > proxy/proxy_server.log 2>&1 &

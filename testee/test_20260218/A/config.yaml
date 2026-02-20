@@ -1,3 +1,7 @@
 image: ubuntu_based_python:latest
+start_script:
+  - "chmod +x ./proxy/proxy_client_start.sh"
+  - ./proxy/proxy_client_start.sh
+
 network:
   ip: 172.20.0.10
