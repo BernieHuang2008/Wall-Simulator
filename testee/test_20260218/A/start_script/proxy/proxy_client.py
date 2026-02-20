@@ -45,7 +45,7 @@ def exchange_loop(client, remote):
             
             # --- CUSTOM LOGIC HOOK (A -> B) ---
             # Modify 'data' here before sending to Node B
-            print(f"[A->B] Forwarding {len(data)} bytes")
+            print(f"[8080->9090] Forwarding {len(data)} bytes")
             # ----------------------------------
             
             remote.sendall(data)
@@ -56,7 +56,7 @@ def exchange_loop(client, remote):
             
             # --- CUSTOM LOGIC HOOK (B -> A) ---
             # Modify 'data' here before sending back to Client
-            print(f"[B->A] Forwarding {len(data)} bytes")
+            print(f"[9090->8080] Received {len(data)} bytes")
             # ----------------------------------
             
             client.sendall(data)

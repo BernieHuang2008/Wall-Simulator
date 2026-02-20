@@ -34,7 +34,7 @@ def handle_client(client_socket):
             client_socket.sendall(b'HTTP/1.1 200 Connection Established\r\n\r\n')
             
             # Now bridge the connection for encrypted traffic
-            bridge_connections(client_socket, target_socket)
+            exchange_loop(client_socket, target_socket)
             
         else:
             # HTTP Proxying (GET, POST, etc.)
@@ -82,7 +82,7 @@ def handle_client(client_socket):
             target_socket.sendall(new_request)
             
             # Bridge the rest of the connection
-            bridge_connections(client_socket, target_socket)
+            exchange_loop(client_socket, target_socket)
 
     except Exception as e:
         # print(f"[!] Error handling request: {e}")
@@ -91,7 +91,7 @@ def handle_client(client_socket):
         if client_socket: client_socket.close()
         if target_socket: target_socket.close()
 
-def bridge_connections(client, target):
+def exchange_loop(client, target):
     """
     Bi-directional bridge between client (Node A) and target (Internet).
     """
@@ -106,10 +106,18 @@ def bridge_connections(client, target):
                 if not data: return # connection closed
 
                 if sock is client:
-                    # Modify Traffic A -> Internet if needed here
+                    # --- CUSTOM LOGIC HOOK (A -> B) ---
+                    # Modify 'data' here before sending to Node B
+                    print(f"[8080->9090] Received {len(data)} bytes")
+                    # ----------------------------------
+
                     target.sendall(data)
                 else:
-                    # Modify Traffic Internet -> A if needed here
+                    # --- CUSTOM LOGIC HOOK (B -> A) ---
+                    # Modify 'data' here before sending back to Client
+                    print(f"[9090->8080] Forwarding {len(data)} bytes")
+                    # ----------------------------------
+                    
                     client.sendall(data)
         except Exception:
             break
